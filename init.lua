@@ -12,18 +12,9 @@ local soname = PLATFORM == "Windows" and "?.dll" or "?.so"
 local cpath = package.cpath
 package.cpath = DATADIR .. '/plugins/tmt/' .. soname .. ';' .. package.cpath
 package.cpath = USERDIR .. '/plugins/tmt/' .. soname .. ';' .. package.cpath
-local libtmt = require "tmt"
+local libtmt = require "luatsm"
 package.cpath = cpath
 
-
-config.plugins.tmt = {
-    shell = os.getenv(PLATFORM == "Windows" and "COMSPEC" or "SHELL") or "/bin/sh",
-    shell_args = {},
-    split_direction = "down",
-    resize_interval = 0.3 -- in seconds
-}
-
-local ESC = "\x1b"
 
 local COLORS = {
     { common.color "#000000" },
@@ -42,8 +33,20 @@ local COLORS = {
     { common.color "#ad7fa8" },
     { common.color "#34e2e2" },
     { common.color "#eeeeec" },
-
+    
+    style.text,
+    style.background
 }
+
+config.plugins.tmt = {
+    shell = os.getenv(PLATFORM == "Windows" and "COMSPEC" or "SHELL") or "/bin/sh",
+    shell_args = {},
+    split_direction = "down",
+    resize_interval = 0.3, -- in seconds
+    palette = COLORS
+}
+
+local ESC = "\x1b"
 
 local PASSTHROUGH_PATH = USERDIR .. "/plugins/tmt/pty"
 local TERMINATION_MSG = "\r\n\n[Process ended with status %d]"
@@ -63,8 +66,8 @@ function TmtView:new()
         stdout = process.REDIRECT_PIPE
     }))
 
-    self.tmt = libtmt.new(80,24)
-    self.screen = {}
+    self.tmt = libtmt.new(24, 80)
+    self.tmt:set_palette(config.plugins.tmt.palette)
 
     self.title = "Tmt"
     self.visible = true
@@ -73,23 +76,21 @@ function TmtView:new()
 
     self.term_target_size = { w = 80, h = 24 }
 
-    self.alive = true
-
     core.add_thread(function()
-        while self.alive do
-            local output = self.proc:read_stdout()
-            if not output then break end
+        while true do
+            local ok, output = pcall(self.proc.read_stdout, self.proc)
+            if not ok or not output then break end
 
-            local events = self.tmt:write(output)
-            core.redraw = events.screen
-            self.bell = events.bell
-            if events.answer then
-                self:input_string(events.answer)
+            if #output > 0 then
+                core.redraw = true
+                local answers = self.tmt:write(output)
+                for _, ans in ipairs(answers) do
+                    self:input_string(ans)
+                end
             end
             coroutine.yield(1 / config.fps)
         end
 
-        self.alive = false
         self.tmt:write(string.format(TERMINATION_MSG, self.proc:returncode() or 0))
     end, self)
 end
@@ -118,8 +119,8 @@ function TmtView:update(...)
     if self.resize_start
         and (system.get_time() - self.resize_start > config.plugins.tmt.resize_interval) then
         self.resize_start = nil
-        self.tmt:set_size(sw, sh)
-        self.proc:write(string.format("\x1bXP%d;%dR\x1b\\", sh, sw))
+        self.tmt:set_size(sh, sw)
+        self:input_string(string.format("\x1bXP%d;%dR\x1b\\", sh, sw))
     end
 
     -- update blink timer
@@ -138,10 +139,10 @@ function TmtView:on_text_input(text)
 end
 
 function TmtView:input_string(str)
-    if not self.alive then
+    if not self.proc:running() then
         return command.perform "root:close"
     end
-    self.proc:write(str)
+    pcall(self.proc.write, self.proc, str)
 end
 
 function TmtView:get_screen_char_size()
@@ -158,27 +159,31 @@ function TmtView:draw()
     local font = style.code_font
 
     -- render screen
-    local screen = self.tmt:get_screen(self.screen)
     local ox,oy = self:get_content_offset()
     local fw, fh = font:get_width("A"), font:get_height()
 
     ox, oy = ox + style.padding.x, oy + style.padding.y
-    for i = 1, screen.width * screen.height do
-        local cy = math.floor((i - 1) / screen.width)
-        local cx = (i - 1) % screen.width
 
-        local x, y = ox + cx * fw, oy + cy * fh
-        local cell = screen[i]
-        local char = cell.char
-        if cell.bg ~= -1 then
-            renderer.draw_rect(x, y, fw, fh, COLORS[cell.bg])
+    self.tmt:draw(function(rects, textruns)
+        for _, r in ipairs(rects) do
+            renderer.draw_rect(
+                ox + r.x * fw,
+                oy + r.y * fh,
+                r.w * fw,
+                fh,
+                { r.r, r.g, r.b }
+            )
         end
-
-        local fg = COLORS[cell.fg] or style.syntax.normal
-        if not invisible[char] then
-            renderer.draw_text(font, char, x, y, fg)
+        for _, t in ipairs(textruns) do
+            renderer.draw_text(
+                style.code_font,
+                t.text,
+                ox + t.x * fw,
+                oy + t.y * fh,
+                { t.r, t.g, t.b }
+            )
         end
-    end
+    end)
 
     -- render caret
     core.blink_timer = system.get_time()
@@ -186,7 +191,7 @@ function TmtView:draw()
     if system.window_has_focus() then
         if config.disable_blink
             or (core.blink_timer - core.blink_start) % T < T / 2 then
-            local cx, cy = self.tmt:get_cursor()
+            local cy, cx = self.tmt:get_cursor()
             local x, y = ox + (cx - 1) * fw, oy + (cy - 1) * fh
             renderer.draw_rect(x, y, style.caret_width, fh, style.caret)
         end

@@ -81,7 +81,7 @@ int main(int argc, char **argv) {
         }
     } else {
         // child
-        setenv("TERM", "ansi", 1);
+        setenv("TERM", "xterm-256color", 1);
         execvp(argv[1], argv + 1);
         return LOG_ERR("execvp(): ");
     }
