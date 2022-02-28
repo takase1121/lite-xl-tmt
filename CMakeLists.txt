@@ -24,7 +24,7 @@ find_package(Lua REQUIRED)
 add_executable(pty ${PTY_SRC})
 target_link_libraries(pty PUBLIC ${PTY_LIB})
 
-add_library(luaterm MODULE luaterm.c luatsm.c bel.c)
+add_library(luaterm MODULE luaterm.c tsm.c bel.c)
 target_compile_options(luaterm PUBLIC -Wall -Wextra -Wno-unused-parameter -pedantic -Werror)
 target_link_libraries(luaterm PUBLIC tsm ${BEL_LIB})
 set_target_properties(luaterm PROPERTIES

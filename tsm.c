@@ -90,7 +90,7 @@ static void event_cb(struct tsm_vte *vte,
                 break;
             case TSM_EV_MOUSE_UNTRACK:
                 lua_pushliteral(L, "untrack");
-                lua_pushnil(L);
+                lua_pushinteger(L, ev->e.mouse);
                 break;
             default:
                 lua_pop(L, 3);
