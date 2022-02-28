@@ -18,6 +18,14 @@ local luaterm = require "luaterm"
 package.cpath = cpath
 
 
+local merge = common.merge or function(a, b)
+    local t = {}
+    for k, v in pairs(a) do t[k] = v end
+    if b then for k, v in pairs(b) do t[k] = v end end
+    return t
+end
+
+
 local COLORS = {
     { common.color "#000000" },
     { common.color "#cc0000" },
@@ -42,7 +50,7 @@ local COLORS = {
 
 local VBEL_DURATION = 0.2
 
-config.plugins.tmt = {
+local conf = merge({
     shell = os.getenv(PLATFORM == "Windows" and "COMSPEC" or "SHELL") or "/bin/sh",
     shell_args = {},
     split_direction = "down",
@@ -51,7 +59,7 @@ config.plugins.tmt = {
     scrollback_size = 9999,
     audio_bell = true,
     visual_bell = true,
-}
+}, config.plugins.tmt)
 
 local ESC = "\x1b"
 
@@ -64,8 +72,8 @@ function TmtView:new()
     TmtView.super.new(self)
     self.scrollable = false
 
-    local args = { PASSTHROUGH_PATH, config.plugins.tmt.shell }
-    for _, arg in ipairs(config.plugins.tmt.shell_args) do
+    local args = { PASSTHROUGH_PATH, conf.shell }
+    for _, arg in ipairs(conf.shell_args) do
         table.insert(args, arg)
     end
     self.proc = assert(process.start(args, {
@@ -76,10 +84,10 @@ function TmtView:new()
     self.tmt = luaterm.tsm.new(
         24,
         80,
-        config.plugins.tmt.scrollback_size,
+        conf.scrollback_size,
         function(...) self:on_tsm_event(...) end
     )
-    self.tmt:set_palette(config.plugins.tmt.palette)
+    self.tmt:set_palette(conf.palette)
 
     self.title = "Tmt"
     self.visible = true
@@ -117,13 +125,11 @@ function TmtView:get_name()
 end
 
 function TmtView:on_tsm_event(event, data)
-    local bel = config.plugins.tmt.audio_bell
-    local vbel = config.plugins.tmt.visual_bell
     if event == "bel" then
-        if bel then
-            luaterm.bel(type(bel) == "string" and bel or nil)
+        if conf.audio_bell then
+            luaterm.bel(type(conf.audio_bell) == "string" and conf.audio_bell or nil)
         end
-        if vbel then
+        if conf.visual_bell then
             self.vbel_start = system.get_time()
         end
     end
@@ -142,7 +148,7 @@ function TmtView:update(...)
     end
 
     if self.resize_start
-        and (system.get_time() - self.resize_start > config.plugins.tmt.resize_interval) then
+        and (system.get_time() - self.resize_start > conf.resize_interval) then
         self.resize_start = nil
         self.tmt:set_size(sh, sw)
         self:input_string(string.format("\x1bXP%d;%dR\x1b\\", sh, sw))
@@ -312,7 +318,7 @@ command.add(nil, {
         if not shared_view_exists() then
             shared_view = TmtView()
         end
-        node:split(config.plugins.tmt.split_direction, shared_view)
+        node:split(conf.split_direction, shared_view)
         core.set_active_view(shared_view)
     end,
     ["tmt:toggle"] = function()
