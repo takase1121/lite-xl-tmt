@@ -26,6 +26,10 @@ local merge = common.merge or function(a, b)
 end
 
 
+local ESC = "\x1b"
+local VBEL_DURATION = 0.2
+local PASSTHROUGH_PATH = USERDIR .. "/plugins/tmt/pty"
+local TERMINATION_MSG = "\r\n\n[Process ended with status %d]"
 local COLORS = {
     { common.color "#000000" },
     { common.color "#cc0000" },
@@ -48,8 +52,6 @@ local COLORS = {
     style.background
 }
 
-local VBEL_DURATION = 0.2
-
 local conf = merge({
     shell = os.getenv(PLATFORM == "Windows" and "COMSPEC" or "SHELL") or "/bin/sh",
     shell_args = {},
@@ -61,10 +63,6 @@ local conf = merge({
     visual_bell = true,
 }, config.plugins.tmt)
 
-local ESC = "\x1b"
-
-local PASSTHROUGH_PATH = USERDIR .. "/plugins/tmt/pty"
-local TERMINATION_MSG = "\r\n\n[Process ended with status %d]"
 
 local TmtView = View:extend()
 
