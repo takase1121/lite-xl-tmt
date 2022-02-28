@@ -59,6 +59,7 @@ local conf = merge({
     resize_interval = 0.3, -- in seconds
     palette = COLORS,
     scrollback_size = 9999,
+    i_swear_its_monospaced = true,
     audio_bell = true,
     visual_bell = true,
 }, config.plugins.tmt)
@@ -195,6 +196,38 @@ local function invert(color)
 end
 
 local invisible = { ["\r"] = true, ["\n"] = true, ["\v"] = true, ["\t"] = true, ["\f"] = true, [" "] = true }
+
+local function draw_perrun(ox, oy, textruns, font, fw, fh)
+    for _, t in ipairs(textruns) do
+        renderer.draw_text(
+        font,
+        t.text,
+        ox + t.x * fw,
+        oy + t.y * fh,
+        { t.r, t.g, t.b }
+        )
+    end
+end
+
+local function draw_perchar(ox, oy, textruns, font, fw, fh)
+    local i = 0
+    for _, t in ipairs(textruns) do
+        for c in common.utf8_chars(t.text) do
+            if not invisible[c] then
+                renderer.draw_text(
+                font,
+                c,
+                ox + ((t.x + i) * fw),
+                oy + t.y * fh,
+                { t.r, t.g, t.b }
+                )
+            end
+            i = i + 1
+        end
+        i = 0
+    end
+end
+
 function TmtView:draw()
     local font = style.code_font
     local ox,oy = self:get_content_offset()
@@ -214,14 +247,11 @@ function TmtView:draw()
                 { r.r, r.g, r.b }
             )
         end
-        for _, t in ipairs(textruns) do
-            renderer.draw_text(
-                style.code_font,
-                t.text,
-                ox + t.x * fw,
-                oy + t.y * fh,
-                { t.r, t.g, t.b }
-            )
+
+        if conf.i_swear_its_monospaced then
+            draw_perrun(ox, oy, textruns, style.code_font, fw, fh)
+        else
+            draw_perchar(ox, oy, textruns, style.code_font, fw, fh)
         end
     end)
 
