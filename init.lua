@@ -40,12 +40,17 @@ local COLORS = {
     style.background
 }
 
+local VBEL_DURATION = 0.2
+
 config.plugins.tmt = {
     shell = os.getenv(PLATFORM == "Windows" and "COMSPEC" or "SHELL") or "/bin/sh",
     shell_args = {},
     split_direction = "down",
     resize_interval = 0.3, -- in seconds
-    palette = COLORS
+    palette = COLORS,
+    scrollback_size = 9999,
+    audio_bell = true,
+    visual_bell = true,
 }
 
 local ESC = "\x1b"
@@ -68,11 +73,12 @@ function TmtView:new()
         stdout = process.REDIRECT_PIPE
     }))
 
-    self.tmt = luaterm.tsm.new(24, 80, 100, function(event, data)
-        if event == "bel" then
-            luaterm.bel()
-        end
-    end)
+    self.tmt = luaterm.tsm.new(
+        24,
+        80,
+        config.plugins.tmt.scrollback_size,
+        function(...) self:on_tsm_event(...) end
+    )
     self.tmt:set_palette(config.plugins.tmt.palette)
 
     self.title = "Tmt"
@@ -110,6 +116,19 @@ function TmtView:get_name()
     return self.title
 end
 
+function TmtView:on_tsm_event(event, data)
+    local bel = config.plugins.tmt.audio_bell
+    local vbel = config.plugins.tmt.visual_bell
+    if event == "bel" then
+        if bel then
+            luaterm.bel(type(bel) == "string" and bel or nil)
+        end
+        if vbel then
+            self.vbel_start = system.get_time()
+        end
+    end
+end
+
 function TmtView:update(...)
     TmtView.super.update(self, ...)
 
@@ -138,6 +157,10 @@ function TmtView:update(...)
         end
         core.blink_timer = tb
     end
+
+    if self.vbel_start and system.get_time() - self.vbel_start >= VBEL_DURATION then
+        self.vbel_start = nil
+    end
 end
 
 function TmtView:on_text_input(text)
@@ -159,17 +182,24 @@ function TmtView:get_screen_char_size()
         math.max(1, math.floor(y / font:get_height()))
 end
 
+local function invert(color)
+    local c = {}
+    for i, v in ipairs(color) do
+        c[i] = math.abs(255 - v)
+    end
+    return c
+end
+
 local invisible = { ["\r"] = true, ["\n"] = true, ["\v"] = true, ["\t"] = true, ["\f"] = true, [" "] = true }
 function TmtView:draw()
-    self:draw_background(style.background)
     local font = style.code_font
-
-    -- render screen
     local ox,oy = self:get_content_offset()
     local fw, fh = font:get_width("A"), font:get_height()
 
-    ox, oy = ox + style.padding.x, oy + style.padding.y
+    self:draw_background(style.background)
 
+    -- render screen
+    ox, oy = ox + style.padding.x, oy + style.padding.y
     self.tmt:draw(function(rects, textruns)
         for _, r in ipairs(rects) do
             renderer.draw_rect(
@@ -201,6 +231,16 @@ function TmtView:draw()
             local x, y = ox + (cx - 1) * fw, oy + (cy - 1) * fh
             renderer.draw_rect(x, y, style.caret_width, fh, style.caret)
         end
+    end
+
+    ox, oy = self:get_content_offset()
+    if self.vbel_start then
+        local color = invert(style.background)
+        color[4] = 255
+        renderer.draw_rect(ox,                                 oy, style.padding.y, self.size.y, color)
+        renderer.draw_rect(ox + self.size.x - style.padding.y, oy, style.padding.y, self.size.y, color)
+        renderer.draw_rect(ox, oy,                                 self.size.x, style.padding.y, color)
+        renderer.draw_rect(ox, oy + self.size.y - style.padding.y, self.size.x, style.padding.y, color)
     end
 end
 
