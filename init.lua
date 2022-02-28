@@ -7,12 +7,14 @@ local config = require "core.config"
 local style = require "core.style"
 local View = require "core.view"
 
+local process = require "process"
+
 -- Import TMT; override CPATH to include DATADIR and USERDIR
 local soname = PLATFORM == "Windows" and "?.dll" or "?.so"
 local cpath = package.cpath
 package.cpath = DATADIR .. '/plugins/tmt/' .. soname .. ';' .. package.cpath
 package.cpath = USERDIR .. '/plugins/tmt/' .. soname .. ';' .. package.cpath
-local libtmt = require "luatsm"
+local luaterm = require "luaterm"
 package.cpath = cpath
 
 
@@ -66,7 +68,11 @@ function TmtView:new()
         stdout = process.REDIRECT_PIPE
     }))
 
-    self.tmt = libtmt.new(24, 80)
+    self.tmt = luaterm.tsm.new(24, 80, 100, function(event, data)
+        if event == "bel" then
+            luaterm.bel()
+        end
+    end)
     self.tmt:set_palette(config.plugins.tmt.palette)
 
     self.title = "Tmt"

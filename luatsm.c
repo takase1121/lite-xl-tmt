@@ -17,7 +17,7 @@ typedef struct {
     struct tsm_screen *screen;
     struct tsm_vte *vte;
     lua_State *L;
-    int data, draw_cb;
+    int data, draw_cb, ev_cb;
     uint8_t tr, tg, tb, rr, rg, rb;
     unsigned int tx, ty, ti, rx, ry, rw;
     int rect, textrun;
@@ -63,16 +63,52 @@ static void write_cb(struct tsm_vte *vte,
     if (L == NULL) return;
 
     lua_rawgeti(L, LUA_REGISTRYINDEX, vt->data);
-    if (!lua_istable(L, -1)) return;
+    if (lua_istable(L, -1)) {
+        lua_pushlstring(L, u8, len);
+        LUA_TPUSH(-2);
+    } else {
+        lua_pop(L, 1);
+    }
+}
 
-    lua_pushlstring(L, u8, len);
-    LUA_TPUSH(-2);
+static void event_cb(struct tsm_vte *vte,
+                        struct tsm_vte_event *ev,
+                        void *data) {
+    vts_t *vt = (vts_t *) data;
+    lua_State *L = vt->L;
+
+    lua_rawgeti(L, LUA_REGISTRYINDEX, vt->ev_cb);
+    if (lua_isfunction(L, -1)) {
+        switch (ev->type) {
+            case TSM_EV_BEL:
+                lua_pushliteral(L, "bel");
+                lua_pushnil(L);
+                break;
+            case TSM_EV_MOUSE_TRACK:
+                lua_pushliteral(L, "track");
+                lua_pushinteger(L, ev->e.mouse);
+                break;
+            case TSM_EV_MOUSE_UNTRACK:
+                lua_pushliteral(L, "untrack");
+                lua_pushnil(L);
+                break;
+            default:
+                lua_pop(L, 3);
+                return;
+        }
+
+        if (lua_pcall(L, 2, 0, 0) != LUA_OK)
+            lua_pop(L, 1);
+    } else {
+        lua_pop(L, 1);
+    }
 }
 
 static int f_new(lua_State *L) {
     int rows = luaL_optinteger(L, 1, 24);
     int cols = luaL_optinteger(L, 2, 80);
     int sb = luaL_optinteger(L, 3, 0);
+    luaL_checktype(L, 4, LUA_TFUNCTION);
 
     LUA_ASSERT(rows > 0 && cols > 0, "rows and columns must be positive");
     LUA_ASSERT(sb >= 0, "scrollback size must be positive");
@@ -82,6 +118,7 @@ static int f_new(lua_State *L) {
 
     memset(vt, 0, sizeof(vts_t));
     vt->L = L;
+    lua_pushvalue(L, 4); vt->ev_cb = luaL_ref(L, LUA_REGISTRYINDEX);
     vt->data = vt->draw_cb = LUA_NOREF;
     vt->buf = malloc(rows * cols * 4 * sizeof(char));
     if (vt->buf == NULL)
@@ -101,6 +138,8 @@ static int f_new(lua_State *L) {
 
     r = tsm_vte_new(&vt->vte, vt->screen, write_cb, vt, log_cb, NULL);
     if (r < 0) goto FREE_BUF;
+
+    tsm_vte_set_ev_cb(vt->vte, event_cb, (void *) vt);
 
     return 1;
 
@@ -304,6 +343,7 @@ static int f_gc(lua_State *L) {
     if (vt->L) {
         luaL_unref(L, LUA_REGISTRYINDEX, vt->data);
         luaL_unref(L, LUA_REGISTRYINDEX, vt->draw_cb);
+        luaL_unref(L, LUA_REGISTRYINDEX, vt->ev_cb);
 
         free(vt->buf);
 
@@ -312,7 +352,7 @@ static int f_gc(lua_State *L) {
         vt->L = NULL;
         vt->vte = NULL;
         vt->screen = NULL;
-        vt->data = vt->draw_cb = LUA_NOREF;
+        vt->data = vt->draw_cb = vt->ev_cb = LUA_NOREF;
     }
     return 0;
 }
